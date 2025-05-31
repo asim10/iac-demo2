@@ -1,0 +1,111 @@
+---
+- name: Install Tomcat 10 with Java 17 and deploy WAR file
+  hosts: webservers
+  become: yes
+  vars:
+    tomcat_version: 10.1.26
+    tomcat_major_version: 10
+    tomcat_user: tomcat
+    tomcat_group: tomcat
+    tomcat_install_dir: /opt/tomcat
+    tomcat_service_name: tomcat
+    war_src: /var/lib/jenkins/workspace/demowebapp/build/libs/demo-1.0.0-15.war    # Change this to your actual WAR file path
+    war_dest: "{{ tomcat_install_dir }}/apache-tomcat-{{ tomcat_version }}/webapps/demoweb.war"
+
+  tasks:
+    - name: Ensure system packages are updated
+      apt:
+        update_cache: yes
+        upgrade: yes
+
+    - name: Install OpenJDK 17
+      apt:
+        name: openjdk-17-jdk
+        state: present
+
+    - name: Create Tomcat group
+      group:
+        name: "{{ tomcat_group }}"
+        state: present
+
+    - name: Create Tomcat user
+      user:
+        name: "{{ tomcat_user }}"
+        group: "{{ tomcat_group }}"
+        system: yes
+        shell: /bin/false
+        create_home: no
+
+    - name: Create Tomcat installation directory
+      file:
+        path: "{{ tomcat_install_dir }}"
+        state: directory
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_group }}"
+        mode: '0755'
+
+    - name: Download Tomcat 10
+      get_url:
+        url: "https://archive.apache.org/dist/tomcat/tomcat-{{ tomcat_major_version }}/v{{ tomcat_version }}/bin/apache-tomcat-{{ tomcat_version }}.tar.gz"
+        dest: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
+        mode: '0644'
+
+    - name: Extract Tomcat archive
+      unarchive:
+        src: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
+        dest: "{{ tomcat_install_dir }}"
+        remote_src: yes
+        creates: "{{ tomcat_install_dir }}/apache-tomcat-{{ tomcat_version }}"
+
+    - name: Set permissions for Tomcat directory
+      file:
+        path: "{{ tomcat_install_dir }}/apache-tomcat-{{ tomcat_version }}"
+        state: directory
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_group }}"
+        recurse: yes
+
+    - name: Create systemd service file for Tomcat
+      copy:
+        dest: /etc/systemd/system/{{ tomcat_service_name }}.service
+        content: |
+          [Unit]
+          Description=Apache Tomcat Web Application Container
+          After=network.target
+
+          [Service]
+          Type=forking
+
+          User={{ tomcat_user }}
+          Group={{ tomcat_group }}
+
+          Environment="JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64"
+          Environment="CATALINA_PID={{ tomcat_install_dir }}/apache-tomcat-{{ tomcat_version }}/temp/tomcat.pid"
+          Environment="CATALINA_HOME={{ tomcat_install_dir }}/apache-tomcat-{{ tomcat_version }}"
+          Environment="CATALINA_BASE={{ tomcat_install_dir }}/apache-tomcat-{{ tomcat_version }}"
+          Environment="CATALINA_OPTS=-Xms512M -Xmx1024M -server -XX:+UseParallelGC"
+          ExecStart={{ tomcat_install_dir }}/apache-tomcat-{{ tomcat_version }}/bin/startup.sh
+          ExecStop={{ tomcat_install_dir }}/apache-tomcat-{{ tomcat_version }}/bin/shutdown.sh
+
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Reload systemd
+
+    - name: Deploy WAR file to Tomcat
+      copy:
+        src: "{{ war_src }}"
+        dest: "{{ war_dest }}"
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_group }}"
+        mode: '0644'
+
+    - name: Start and enable Tomcat service
+      systemd:
+        name: "{{ tomcat_service_name }}"
+        enabled: yes
+        state: started
+
+  handlers:
+    - name: Reload systemd
+      command: systemctl daemon-reload
