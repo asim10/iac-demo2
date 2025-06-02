@@ -9,7 +9,7 @@
     tomcat_group: tomcat
     tomcat_install_dir: /opt/tomcat
     tomcat_service_name: tomcat
-    war_src: /var/lib/jenkins/workspace/demo-web-app/build/libs/demo-1.0.0-17.war    # Change this to your actual WAR file path
+    war_src: './build/libs/{{ war_src_file }}'   # Change this to your actual WAR file path
     war_dest: "{{ tomcat_install_dir }}/apache-tomcat-{{ tomcat_version }}/webapps/demoweb.war"
 
   tasks:
